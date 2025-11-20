@@ -381,9 +381,11 @@ def generate_interactions(
                         movie = movie_objects[movie_idx]
 
                         # Random hour of day (weighted towards evening)
+                        # Probabilities: 0-5h: 0.01667, 6-11h: 0.025, 12-17h: 0.04167, 18-23h: 0.08333
+                        # Maintains 2:3:5:10 ratio, sums to 1.0
                         hour = np.random.choice(
                             24,
-                            p=[0.02] * 6 + [0.03] * 6 + [0.05] * 6 + [0.1] * 6  # Evening higher
+                            p=[1/60] * 6 + [1/40] * 6 + [1/24] * 6 + [1/12] * 6  # Evening higher
                         )
 
                         # Create context
@@ -417,13 +419,20 @@ def generate_interactions(
                                 interactions.append(interaction)
                             else:
                                 # Record skip
+                                # For skip events, simulate watch duration before skipping
+                                # (user watched some portion before deciding to skip)
+                                movie_duration_seconds = movie.duration_minutes * 60
+                                # Simulate watch duration: 0 to 50% of movie (realistic skip behavior)
+                                max_watch_before_skip = int(movie_duration_seconds * 0.5)
+                                watch_duration_seconds = np.random.randint(0, max_watch_before_skip + 1)
+
                                 interaction = {
                                     "user_id": user.user_id,
                                     "movie_id": movie.movie_id,
                                     "timestamp": current_date.replace(hour=hour, minute=0, second=0),
                                     "event_type": "skip",
-                                    "watch_time_seconds": 0,
-                                    "rating": None,
+                                    "watch_duration_seconds": watch_duration_seconds,
+                                    "movie_duration_seconds": movie_duration_seconds,
                                 }
                                 interactions.append(interaction)
                         except Exception as e:
