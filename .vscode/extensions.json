@@ -1,0 +1,88 @@
+{
+  "recommendations": [
+    // Python Development
+    "ms-python.python",
+    "ms-python.vscode-pylance",
+    "ms-python.black-formatter",
+    "charliermarsh.ruff",
+    "ms-python.mypy-type-checker",
+
+    // Testing
+    "littlefoxteam.vscode-python-test-adapter",
+    "hbenl.vscode-test-explorer",
+
+    // Git
+    "eamodio.gitlens",
+    "mhutchie.git-graph",
+
+    // Docker & Kubernetes
+    "ms-azuretools.vscode-docker",
+    "ms-kubernetes-tools.vscode-kubernetes-tools",
+
+    // YAML & Configuration
+    "redhat.vscode-yaml",
+    "tamasfe.even-better-toml",
+
+    // Markdown
+    "yzhang.markdown-all-in-one",
+    "davidanson.vscode-markdownlint",
+
+    // Code Quality
+    "streetsidesoftware.code-spell-checker",
+    "gruntfuggly.todo-tree",
+    "usernamehw.errorlens",
+
+    // Formatting
+    "esbenp.prettier-vscode",
+    "editorconfig.editorconfig",
+
+    // AI Assistant
+    "github.copilot",
+    "github.copilot-chat",
+
+    // Database
+    "mongodb.mongodb-vscode",
+    "cweijan.vscode-database-client2",
+
+    // REST API Testing
+    "humao.rest-client",
+
+    // Better Comments
+    "aaron-bond.better-comments",
+
+    // Icons
+    "vscode-icons-team.vscode-icons",
+
+    // Jupyter (for notebooks)
+    "ms-toolsai.jupyter",
+    "ms-toolsai.jupyter-keymap",
+    "ms-toolsai.jupyter-renderers",
+
+    // Remote Development
+    "ms-vscode-remote.remote-ssh",
+    "ms-vscode-remote.remote-containers",
+
+    // Terraform (for infrastructure)
+    "hashicorp.terraform",
+
+    // GitHub Actions
+    "github.vscode-github-actions",
+
+    // Path Intellisense
+    "christian-kohler.path-intellisense",
+
+    // Bracket Pair Colorizer
+    "2gua.rainbow-brackets",
+
+    // Live Share (for collaboration)
+    "ms-vsliveshare.vsliveshare"
+  ],
+  "unwantedRecommendations": [
+    // Avoid conflicting formatters
+    "ms-python.autopep8",
+
+    // Avoid old linters
+    "ms-python.flake8",
+    "ms-python.pylint"
+  ]
+}

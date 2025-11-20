@@ -1,0 +1,187 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    
+    {
+      "name": "Python: Current File",
+      "type": "python",
+      "request": "launch",
+      "program": "${file}",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Python: FastAPI",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "src.api:app",
+        "--reload",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000"
+      ],
+      "jinja": true,
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Python: Pytest Current File",
+      "type": "python",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "${file}",
+        "-v",
+        "-s"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Python: Pytest All",
+      "type": "python",
+      "request": "launch",
+      "module": "pytest",
+      "args": [
+        "tests/",
+        "-v",
+        "--cov=src",
+        "--cov-report=html"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Python: Generate Synthetic Data",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/sim/generate.py",
+      "args": [
+        "generate-all",
+        "--users",
+        "1000",
+        "--movies",
+        "500",
+        "--days",
+        "7"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Python: Train Model",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/stories/movie-recommender/brick-03-model-training/src/train.py",
+      "args": [
+        "--config",
+        "config.yaml"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Python: Feature Pipeline",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/stories/movie-recommender/brick-02-feature-engineering/src/feature_pipeline.py",
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Python: Recommendation Service",
+      "type": "python",
+      "request": "launch",
+      "module": "uvicorn",
+      "args": [
+        "stories.movie-recommender.brick-04-recommendation-service.src.recommender:app",
+        "--reload",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8001"
+      ],
+      "jinja": true,
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Python: AI Mentor CLI",
+      "type": "python",
+      "request": "launch",
+      "program": "${workspaceFolder}/agent/cli.py",
+      "args": [
+        "start-brick",
+        "1"
+      ],
+      "console": "integratedTerminal",
+      "justMyCode": false,
+      "env": {
+        "PYTHONPATH": "${workspaceFolder}"
+      }
+    },
+    {
+      "name": "Docker: Attach to FastAPI",
+      "type": "python",
+      "request": "attach",
+      "connect": {
+        "host": "localhost",
+        "port": 5678
+      },
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}",
+          "remoteRoot": "/app"
+        }
+      ]
+    },
+    {
+      "name": "Python: Remote Attach",
+      "type": "python",
+      "request": "attach",
+      "port": 5678,
+      "host": "localhost",
+      "pathMappings": [
+        {
+          "localRoot": "${workspaceFolder}",
+          "remoteRoot": "."
+        }
+      ]
+    }
+  ],
+  "compounds": [
+    {
+      "name": "Full Stack Debug",
+      "configurations": [
+        "Python: FastAPI",
+        "Docker: Attach to FastAPI"
+      ],
+      "preLaunchTask": "docker-compose-up"
+    }
+  ]
+}

@@ -1,0 +1,235 @@
+{
+    // Editor Settings
+    "editor.formatOnSave": true,
+    "editor.codeActionsOnSave": {
+      "source.organizeImports": "explicit"
+    },
+    "editor.rulers": [100],
+    "editor.tabSize": 4,
+    "editor.insertSpaces": true,
+    "editor.wordWrap": "on",
+    "editor.guides.bracketPairs": true,
+
+    // Python Settings
+    "python.defaultInterpreterPath": "${workspaceFolder}/venv/bin/python",
+    "python.terminal.activateEnvironment": true,
+    "python.analysis.typeCheckingMode": "strict",
+    "python.analysis.autoImportCompletions": true,
+    "python.analysis.diagnosticMode": "workspace",
+
+    // Formatting
+    "[python]": {
+      "editor.defaultFormatter": "ms-python.black-formatter",
+      "editor.formatOnSave": true,
+      "editor.codeActionsOnSave": {
+        "source.organizeImports": "explicit"
+      }
+    },
+    "black-formatter.args": ["--line-length=100"],
+
+    // Linting
+    "python.linting.enabled": true,
+    "python.linting.ruffEnabled": true,
+    "python.linting.ruffArgs": [
+      "--select=E,F,I",
+      "--line-length=100"
+    ],
+    "python.linting.mypyEnabled": true,
+    "python.linting.mypyArgs": [
+      "--strict",
+      "--ignore-missing-imports"
+    ],
+
+    // Testing
+    "python.testing.pytestEnabled": true,
+    "python.testing.unittestEnabled": false,
+    "python.testing.pytestArgs": [
+      "tests",
+      "-v",
+      "--cov=src",
+      "--cov-report=html"
+    ],
+    "python.testing.autoTestDiscoverOnSaveEnabled": true,
+
+    // File Associations
+    "files.associations": {
+      "*.yaml": "yaml",
+      "*.yml": "yaml",
+      ".cursorrules": "markdown",
+      "CLAUDE.md": "markdown",
+      "Dockerfile*": "dockerfile",
+      "docker-compose*.yml": "yaml"
+    },
+
+    // File Exclusions
+    "files.exclude": {
+      "**/__pycache__": true,
+      "**/*.pyc": true,
+      "**/.pytest_cache": true,
+      "**/.mypy_cache": true,
+      "**/.ruff_cache": true,
+      "**/node_modules": true,
+      "**/.git": true,
+      "**/venv": true,
+      "**/.venv": true,
+      "**/*.egg-info": true,
+      "**/.coverage": true,
+      "**/htmlcov": true
+    },
+
+    // Search Exclusions
+    "search.exclude": {
+      "**/node_modules": true,
+      "**/venv": true,
+      "**/.venv": true,
+      "**/dist": true,
+      "**/build": true,
+      "**/__pycache__": true,
+      "**/.pytest_cache": true,
+      "**/.mypy_cache": true,
+      "**/.ruff_cache": true,
+      "**/htmlcov": true,
+      "**/*.egg-info": true
+    },
+
+    // Git
+    "git.ignoreLimitWarning": true,
+    "git.autofetch": true,
+    "git.confirmSync": false,
+
+    // Docker
+    "docker.showStartPage": false,
+
+    // Terminal
+    "terminal.integrated.defaultProfile.linux": "bash",
+    "terminal.integrated.defaultProfile.osx": "zsh",
+    "terminal.integrated.defaultProfile.windows": "PowerShell",
+
+    // Markdown
+    "[markdown]": {
+      "editor.wordWrap": "on",
+      "editor.quickSuggestions": {
+        "comments": "off",
+        "strings": "off",
+        "other": "off"
+      }
+    },
+
+    // JSON
+    "[json]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.tabSize": 2
+    },
+    "[jsonc]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.tabSize": 2
+    },
+
+    // YAML
+    "[yaml]": {
+      "editor.defaultFormatter": "redhat.vscode-yaml",
+      "editor.tabSize": 2,
+      "editor.insertSpaces": true
+    },
+
+    // Dockerfile
+    "[dockerfile]": {
+      "editor.defaultFormatter": "ms-azuretools.vscode-docker"
+    },
+
+    // JavaScript/TypeScript (for future web dashboard)
+    "[javascript]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.tabSize": 2
+    },
+    "[typescript]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.tabSize": 2
+    },
+    "[typescriptreact]": {
+      "editor.defaultFormatter": "esbenp.prettier-vscode",
+      "editor.tabSize": 2
+    },
+
+    // Problems
+    "problems.showCurrentInStatus": true,
+
+    // Explorer
+    "explorer.confirmDelete": false,
+    "explorer.confirmDragAndDrop": false,
+
+    // Workbench
+    "workbench.editor.enablePreview": false,
+    "workbench.startupEditor": "readme",
+
+    // AI Assistant Settings (Cursor specific)
+    "cursor.chat.enabled": true,
+    "cursor.composerBar.enabled": true,
+
+    // TODO Tree (if installed)
+    "todo-tree.general.tags": [
+      "BUG",
+      "HACK",
+      "FIXME",
+      "TODO",
+      "XXX",
+      "[ ]",
+      "[x]"
+    ],
+    "todo-tree.regex.regex": "(//|#|<!--|;|/\\*|^|^\\s*(-|\\*))\\s*($TAGS)",
+
+    // Code Spell Checker (if installed)
+    "cSpell.words": [
+      "agentbricks",
+      "aiokafka",
+      "asyncio",
+      "fastapi",
+      "pydantic",
+      "pytest",
+      "pymongo",
+      "mlflow",
+      "prefect",
+      "faiss",
+      "ncf",
+      "uvicorn",
+      "httpx",
+      "ruff",
+      "mypy",
+      "clickhouse",
+      "grafana",
+      "prometheus"
+    ],
+
+    // IntelliCode
+    "vsintellicode.modify.editor.suggestSelection": "automaticallyOverrodeDefaultValue",
+
+    // Auto Save
+    "files.autoSave": "afterDelay",
+    "files.autoSaveDelay": 1000,
+
+    // Breadcrumbs
+    "breadcrumbs.enabled": true,
+
+    // Minimap
+    "editor.minimap.enabled": true,
+    "editor.minimap.maxColumn": 100,
+
+    // Whitespace
+    "files.trimTrailingWhitespace": true,
+    "files.insertFinalNewline": true,
+    "files.trimFinalNewlines": true,
+
+    // Diff Editor
+    "diffEditor.ignoreTrimWhitespace": false,
+
+    // Notebook (for Jupyter notebooks)
+    "notebook.cellToolbarLocation": {
+      "default": "right",
+      "jupyter-notebook": "left"
+    },
+
+    // GitLens (if installed)
+    "gitlens.hovers.currentLine.over": "line",
+    "gitlens.currentLine.enabled": false,
+    "gitlens.codeLens.enabled": false
+  }
