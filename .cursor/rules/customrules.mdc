@@ -1,0 +1,597 @@
+---
+alwaysApply: true
+---
+# AgentBricks - Cursor Rules
+
+# Project Context
+You are working on AgentBricks, a story-driven ML system design learning platform. This is a production-quality open-source project meant to teach early-career engineers how to build real recommendation systems.
+
+# Code Generation Standards
+
+## Python Code Style
+- Use Python 3.11+ features
+- Format with Black (line-length=100)
+- Lint with Ruff
+- Type hints are REQUIRED on all functions
+- Use Google-style docstrings
+- Follow PEP 8 naming conventions
+- Never use bare `except:` statements
+- Always handle edge cases explicitly
+
+## Type Hints Pattern
+```python
+def function_name(
+    param1: str,
+    param2: int,
+    param3: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """Function description."""
+    pass
+```
+
+## Docstring Pattern
+```python
+def compute_features(user_id: str, as_of_date: datetime) -> dict:
+    """
+    Compute user features with point-in-time correctness.
+    
+    Args:
+        user_id: Unique user identifier
+        as_of_date: Compute features as of this timestamp
+        
+    Returns:
+        dict: User features with keys:
+            - total_watch_time: Total seconds watched
+            - favorite_genre: Most watched genre
+            - days_since_last_active: Days since last interaction
+            
+    Raises:
+        ValueError: If user_id is invalid
+        
+    Example:
+        >>> features = compute_features("user_123", datetime.now())
+        >>> print(features['total_watch_time'])
+        3600
+    """
+```
+
+# Testing Requirements
+
+## Test File Naming
+- Unit tests: `test_<module_name>.py` in `tests/unit/`
+- Integration tests: `test_<component>_integration.py` in `tests/integration/`
+- End-to-end tests: `test_<story>_e2e.py` in `tests/e2e/`
+
+## Test Function Naming
+- Pattern: `test_<function>_with_<condition>_<expected_result>`
+- Example: `test_compute_features_with_new_user_returns_defaults`
+
+## Test Structure
+```python
+def test_function_name_with_condition_returns_expected():
+    """Test description explaining what is being tested and why."""
+    # Arrange
+    input_data = create_test_data()
+    expected_output = {"key": "value"}
+    
+    # Act
+    result = function_to_test(input_data)
+    
+    # Assert
+    assert result == expected_output
+    assert result["key"] == "value"
+```
+
+## Coverage Requirements
+- Minimum: 80% coverage per module
+- Test both happy path and edge cases
+- Always test error conditions
+- Use pytest fixtures for reusable test data
+- Mock external dependencies (Kafka, Redis, APIs)
+
+# API Development
+
+## FastAPI Endpoint Pattern
+```python
+from fastapi import FastAPI, HTTPException, status
+from pydantic import BaseModel, Field
+import logging
+
+logger = logging.getLogger(__name__)
+
+class RequestModel(BaseModel):
+    """Request schema."""
+    field1: str = Field(..., description="Field description")
+    field2: int = Field(..., gt=0, description="Must be positive")
+
+@app.post("/endpoint", status_code=status.HTTP_200_OK)
+async def endpoint_name(request: RequestModel) -> dict:
+    """
+    Endpoint description.
+    
+    Args:
+        request: Request body
+        
+    Returns:
+        dict: Response with status and data
+        
+    Raises:
+        HTTPException: 400 if validation fails
+        HTTPException: 500 if processing fails
+    """
+    try:
+        # Validation
+        if not validate(request):
+            raise HTTPException(
+                status_code=400,
+                detail="Validation error message"
+            )
+        
+        # Processing
+        result = process(request)
+        
+        # Logging
+        logger.info(
+            "Processed request",
+            extra={"field1": request.field1}
+        )
+        
+        return {"status": "success", "data": result}
+        
+    except ValueError as e:
+        logger.error(f"Validation error: {e}")
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error(f"Processing error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Internal server error")
+```
+
+# Error Handling
+
+## Required Error Handling
+- Always catch specific exceptions
+- Log errors with context
+- Return meaningful error messages
+- Include error codes/types
+- Never expose stack traces to users
+
+## Error Handling Pattern
+```python
+try:
+    result = risky_operation()
+except ValueError as e:
+    logger.error(f"Validation failed: {e}", extra={"user_id": user_id})
+    raise HTTPException(status_code=400, detail=str(e))
+except ConnectionError as e:
+    logger.error(f"Database connection failed: {e}")
+    raise HTTPException(status_code=503, detail="Service temporarily unavailable")
+except Exception as e:
+    logger.error(f"Unexpected error: {e}", exc_info=True)
+    raise HTTPException(status_code=500, detail="Internal server error")
+```
+
+# Logging Standards
+
+## Logging Pattern
+```python
+import logging
+import json
+
+# Configure structured JSON logging
+logger = logging.getLogger(__name__)
+
+# Use appropriate levels
+logger.debug("Detailed information for debugging")
+logger.info("Normal operations", extra={"user_id": "123", "action": "view"})
+logger.warning("Warning message", extra={"metric": "cache_miss"})
+logger.error("Error occurred", extra={"error_type": "validation"}, exc_info=True)
+```
+
+## What to Log
+- INFO: Successful operations, key events
+- WARNING: Recoverable issues, degraded performance
+- ERROR: Failures requiring attention
+- DEBUG: Detailed diagnostic information
+
+## What NOT to Log
+- Passwords or secrets
+- Full credit card numbers
+- Personal identifiable information (PII)
+- Large payloads (>1KB)
+
+# Database Operations
+
+## Async Database Pattern
+```python
+from motor.motor_asyncio import AsyncIOMotorClient
+from typing import Optional, List
+
+class Repository:
+    """Repository for database operations."""
+    
+    def __init__(self, db_client: AsyncIOMotorClient):
+        self.db = db_client
+        self.collection = db_client.database.collection
+    
+    async def find_by_id(self, id: str) -> Optional[dict]:
+        """
+        Find document by ID.
+        
+        Args:
+            id: Document identifier
+            
+        Returns:
+            Optional[dict]: Document if found, None otherwise
+        """
+        try:
+            return await self.collection.find_one({"_id": id})
+        except Exception as e:
+            logger.error(f"Database query failed: {e}", exc_info=True)
+            raise
+```
+
+# ML Model Code
+
+## Model Definition Pattern
+```python
+import torch
+import torch.nn as nn
+from typing import Tuple
+
+class NCFModel(nn.Module):
+    """
+    Neural Collaborative Filtering model.
+    
+    Implements the architecture from He et al. (2017).
+    Combines GMF (Generalized Matrix Factorization) and MLP paths.
+    
+    Args:
+        num_users: Number of unique users
+        num_items: Number of unique items
+        embedding_dim: Dimension of embedding vectors
+        mlp_layers: List of MLP layer sizes
+        
+    Example:
+        >>> model = NCFModel(1000, 500, 64, [128, 64, 32])
+        >>> output = model(user_ids, item_ids)
+    """
+    
+    def __init__(
+        self,
+        num_users: int,
+        num_items: int,
+        embedding_dim: int = 64,
+        mlp_layers: List[int] = [128, 64, 32]
+    ):
+        super().__init__()
+        
+        # GMF path
+        self.user_embedding_gmf = nn.Embedding(num_users, embedding_dim)
+        self.item_embedding_gmf = nn.Embedding(num_items, embedding_dim)
+        
+        # MLP path
+        self.user_embedding_mlp = nn.Embedding(num_users, embedding_dim)
+        self.item_embedding_mlp = nn.Embedding(num_items, embedding_dim)
+        
+        # MLP layers
+        mlp_modules = []
+        input_size = embedding_dim * 2
+        for layer_size in mlp_layers:
+            mlp_modules.append(nn.Linear(input_size, layer_size))
+            mlp_modules.append(nn.ReLU())
+            mlp_modules.append(nn.Dropout(0.2))
+            input_size = layer_size
+        self.mlp = nn.Sequential(*mlp_modules)
+        
+        # Final prediction layer
+        self.output = nn.Linear(embedding_dim + mlp_layers[-1], 1)
+        
+        # Initialize weights
+        self._init_weights()
+    
+    def _init_weights(self):
+        """Initialize weights using He initialization."""
+        for m in self.modules():
+            if isinstance(m, nn.Linear):
+                nn.init.kaiming_normal_(m.weight)
+                nn.init.constant_(m.bias, 0)
+    
+    def forward(
+        self,
+        user_ids: torch.Tensor,
+        item_ids: torch.Tensor
+    ) -> torch.Tensor:
+        """
+        Forward pass.
+        
+        Args:
+            user_ids: Tensor of user IDs, shape (batch_size,)
+            item_ids: Tensor of item IDs, shape (batch_size,)
+            
+        Returns:
+            torch.Tensor: Prediction scores, shape (batch_size, 1)
+        """
+        # GMF path
+        user_emb_gmf = self.user_embedding_gmf(user_ids)
+        item_emb_gmf = self.item_embedding_gmf(item_ids)
+        gmf_output = user_emb_gmf * item_emb_gmf
+        
+        # MLP path
+        user_emb_mlp = self.user_embedding_mlp(user_ids)
+        item_emb_mlp = self.item_embedding_mlp(item_ids)
+        mlp_input = torch.cat([user_emb_mlp, item_emb_mlp], dim=1)
+        mlp_output = self.mlp(mlp_input)
+        
+        # Concatenate and predict
+        concat = torch.cat([gmf_output, mlp_output], dim=1)
+        output = self.output(concat)
+        
+        return output
+```
+
+# Configuration Management
+
+## Use Environment Variables
+```python
+from pydantic_settings import BaseSettings
+from typing import Optional
+
+class Settings(BaseSettings):
+    """Application settings."""
+    
+    # API
+    api_host: str = "0.0.0.0"
+    api_port: int = 8000
+    
+    # Kafka
+    kafka_bootstrap_servers: str = "localhost:9092"
+    kafka_topic_prefix: str = "movie-events"
+    
+    # MongoDB
+    mongo_uri: str = "mongodb://localhost:27017"
+    mongo_db: str = "agentbricks"
+    
+    # Redis
+    redis_host: str = "localhost"
+    redis_port: int = 6379
+    redis_ttl: int = 300
+    
+    # Model
+    model_path: str = "./models/ncf_v1.pth"
+    embedding_dim: int = 64
+    
+    class Config:
+        env_file = ".env"
+        env_file_encoding = "utf-8"
+
+settings = Settings()
+```
+
+# Docker Best Practices
+
+## Dockerfile Pattern
+```dockerfile
+# Multi-stage build
+FROM python:3.11-slim as builder
+
+WORKDIR /build
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install Python dependencies
+COPY requirements.txt .
+RUN pip wheel --no-cache-dir --wheel-dir /wheels -r requirements.txt
+
+# Runtime stage
+FROM python:3.11-slim
+
+# Create non-root user
+RUN useradd -m -u 1000 appuser
+
+WORKDIR /app
+
+# Copy wheels and install
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache /wheels/*
+
+# Copy application
+COPY --chown=appuser:appuser . .
+
+# Switch to non-root user
+USER appuser
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8000/health')"
+
+# Run application
+CMD ["uvicorn", "src.api:app", "--host", "0.0.0.0", "--port", "8000"]
+```
+
+# Documentation Requirements
+
+## README Structure for Each Brick
+- Story context (narrative intro)
+- Learning objectives (bullet list)
+- System architecture (diagram)
+- Tasks breakdown (numbered, with checkboxes)
+- Acceptance criteria (clear metrics)
+- Hints (collapsible sections)
+- Resources (links to docs)
+
+## Code Comments
+- Explain "why", not "what"
+- Complex algorithms need detailed comments
+- Reference papers/articles when relevant
+- TODO comments only in development branches
+
+# Performance Considerations
+
+## Optimization Rules
+- Measure before optimizing
+- Database queries: Use indexes, batch operations
+- API calls: Implement caching, connection pooling
+- ML inference: Batch predictions, use appropriate device
+- Memory: Stream large files, don't load all in memory
+
+## Performance Targets to Keep in Mind
+- API latency: <100ms P95
+- Throughput: >100 req/sec
+- Database queries: <50ms
+- Cache hit rate: >50%
+- Model inference: <50ms for batch of 100
+
+# Security Best Practices
+
+## Never Commit
+- API keys, passwords, secrets
+- .env files with real credentials
+- Private keys
+- Database connection strings with passwords
+
+## Always Do
+- Use environment variables for secrets
+- Validate all user input
+- Sanitize database queries (use parameterized queries)
+- Implement rate limiting
+- Use HTTPS in production
+- Keep dependencies updated
+
+# Git Commit Standards
+
+## Commit Message Format
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+
+## Types
+- feat: New feature
+- fix: Bug fix
+- docs: Documentation only
+- style: Code style (formatting, no logic change)
+- refactor: Code restructuring
+- test: Adding or updating tests
+- chore: Maintenance tasks
+
+## Examples
+```
+feat(brick-01): add request validation middleware
+
+Implement Pydantic validation for all event types.
+Includes comprehensive error messages and logging.
+
+Closes #42
+
+---
+
+fix(sim): correct user preference generation
+
+Users were getting identical preference vectors.
+Now using proper random seed per user.
+
+---
+
+docs(readme): update installation instructions
+
+Add troubleshooting section for Docker issues.
+```
+
+# When Generating New Components
+
+## Checklist Before Creating Code
+1. ✅ Does this fit the story arc's learning objectives?
+2. ✅ Is this production-grade (not tutorial code)?
+3. ✅ Are all edge cases handled?
+4. ✅ Is there comprehensive documentation?
+5. ✅ Are tests included?
+6. ✅ Is logging implemented?
+7. ✅ Are type hints complete?
+8. ✅ Is performance acceptable?
+
+## Always Include
+- Type hints
+- Docstrings
+- Error handling
+- Logging
+- Input validation
+- Example usage
+- Unit tests
+
+## Never Include
+- Hardcoded values (use config)
+- Commented-out code
+- Print statements (use logging)
+- TODO comments in main branch
+- Credentials or secrets
+
+# Project-Specific Patterns
+
+## Synthetic Data Generation
+- Always use seeded random number generators for reproducibility
+- Generate data in batches to avoid memory issues
+- Include progress bars (tqdm) for long operations
+- Save with metadata (generation params, timestamp)
+
+## Feature Engineering
+- Always respect temporal boundaries (no future data leakage)
+- Handle missing values explicitly
+- Document feature definitions
+- Version features in feature store
+
+## Model Training
+- Use early stopping
+- Log all metrics to MLflow
+- Save checkpoints during training
+- Gradient clipping for stability
+- Reproducible (set seeds)
+
+## API Development
+- All endpoints async
+- Comprehensive input validation
+- Structured logging
+- Health check endpoint
+- Metrics endpoint for Prometheus
+- OpenAPI documentation
+
+# Response Format Preferences
+
+## When Asked to Generate Code
+1. Provide complete, runnable code
+2. Include all necessary imports
+3. Add comprehensive docstrings
+4. Show example usage
+5. Suggest tests to write
+
+## When Asked to Debug
+1. Identify the specific issue
+2. Explain why it's happening
+3. Provide the fix
+4. Suggest how to prevent similar issues
+
+## When Asked to Explain
+1. Start with high-level concept
+2. Provide detailed explanation
+3. Show code examples
+4. Link to relevant documentation
+
+# Final Reminders
+
+- This is educational code but production-grade quality
+- Every component should teach a system design concept
+- Early-career engineers are the audience
+- Balance beginner-friendly with realistic complexity
+- Story-driven approach is core to the project
+- Open source means exemplary code quality
+- Community contributions should be easy
+- Documentation is as important as code
+
+---
+
+These rules ensure consistency and quality across the AgentBricks project. Follow them strictly when generating or modifying code.
