@@ -1,0 +1,150 @@
+version: '3.8'
+
+services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    hostname: zookeeper
+    container_name: agentbricks-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+    volumes:
+      - zookeeper-data:/var/lib/zookeeper/data
+      - zookeeper-logs:/var/lib/zookeeper/log
+    networks:
+      - agentbricks-network
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 2181 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    hostname: kafka
+    container_name: agentbricks-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    ports:
+      - "9092:9092"
+      - "9101:9101"  # JMX port for metrics
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092,PLAINTEXT_INTERNAL://kafka:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_INTERNAL:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT_INTERNAL
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      # Auto-create topics
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+      # Topic defaults
+      KAFKA_NUM_PARTITIONS: 3
+      KAFKA_DEFAULT_REPLICATION_FACTOR: 1
+      KAFKA_MIN_INSYNC_REPLICAS: 1
+      # Log retention
+      KAFKA_LOG_RETENTION_HOURS: 168  # 7 days
+      KAFKA_LOG_RETENTION_BYTES: 1073741824  # 1GB
+      KAFKA_LOG_SEGMENT_BYTES: 1073741824  # 1GB
+      # Compression
+      KAFKA_COMPRESSION_TYPE: gzip
+      # JMX for metrics
+      KAFKA_JMX_PORT: 9101
+      KAFKA_JMX_HOSTNAME: localhost
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    networks:
+      - agentbricks-network
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:9092 || exit 1"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    restart: unless-stopped
+
+  mongodb:
+    image: mongo:7.0
+    hostname: mongodb
+    container_name: agentbricks-mongodb
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_USERNAME:-admin}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_PASSWORD:-password}
+      MONGO_INITDB_DATABASE: ${MONGO_DATABASE:-agentbricks}
+    volumes:
+      - mongodb-data:/data/db
+      - mongodb-config:/data/configdb
+    networks:
+      - agentbricks-network
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    command: mongod --bind_ip_all
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    hostname: api
+    container_name: agentbricks-api
+    depends_on:
+      kafka:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      # Kafka configuration
+      KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      KAFKA_TOPIC_PREFIX: ${KAFKA_TOPIC_PREFIX:-}
+      KAFKA_RETRY_MAX_ATTEMPTS: ${KAFKA_RETRY_MAX_ATTEMPTS:-3}
+      # MongoDB configuration
+      MONGO_URI: mongodb://${MONGO_USERNAME:-admin}:${MONGO_PASSWORD:-password}@mongodb:27017/${MONGO_DATABASE:-agentbricks}?authSource=admin
+      MONGO_DATABASE: ${MONGO_DATABASE:-agentbricks}
+      # API configuration
+      API_HOST: 0.0.0.0
+      API_PORT: 8000
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+      # CORS
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    volumes:
+      - ./src:/app/src  # Hot reload for development
+      - ./data:/app/data  # Data directory
+    networks:
+      - agentbricks-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    command: uvicorn src.api:app --host 0.0.0.0 --port 8000 --reload
+
+volumes:
+  zookeeper-data:
+    driver: local
+  zookeeper-logs:
+    driver: local
+  kafka-data:
+    driver: local
+  mongodb-data:
+    driver: local
+  mongodb-config:
+    driver: local
+
+networks:
+  agentbricks-network:
+    driver: bridge
+    name: agentbricks-network
