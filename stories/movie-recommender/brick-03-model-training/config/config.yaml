@@ -1,0 +1,41 @@
+# NCF Model Training Configuration
+# This file contains all hyperparameters and paths for training
+
+# Data configuration
+data:
+  interactions_path: "data/interactions.parquet"
+  split_date: "2024-01-01"  # Temporal split date for train/test
+
+# Model configuration
+model:
+  num_users: 10000
+  num_items: 5000
+  embedding_dim: 64
+  mlp_layers: [128, 64, 32]
+  dropout: 0.2
+  use_batch_norm: true
+
+# Training configuration
+training:
+  lr: 0.001
+  batch_size: 256
+  epochs: 20
+  num_negatives: 4  # Number of negative samples per positive
+  weight_decay: 1e-5
+  early_stopping_patience: 3
+  num_workers: 4
+  max_grad_norm: 1.0
+
+# Paths configuration
+paths:
+  checkpoint_dir: "./checkpoints"
+  mlflow_uri: "file:./mlruns"
+  output_dir: "./outputs"
+
+# Device configuration
+device: "cpu"  # Use "cuda" for GPU training
+
+# Evaluation configuration
+evaluation:
+  k: 10  # Top-k for NDCG and Hit Rate
+  metrics: ["auc", "ndcg_at_10", "hit_rate_at_10"]

@@ -1,0 +1,159 @@
+# Alertmanager Configuration
+#
+# Routes alerts to appropriate notification channels based on severity and labels.
+# Supports Slack, PagerDuty, email, and other notification channels.
+#
+# Usage: Place this file in your Alertmanager config directory
+# Alertmanager will read this on startup
+
+global:
+  # Resolve timeout for alerts
+  resolve_timeout: 5m
+
+  # Default notification settings
+  slack_api_url: '${SLACK_API_URL}'  # Set via environment variable
+
+  # PagerDuty integration URL
+  pagerduty_url: 'https://events.pagerduty.com/v2/enqueue'
+
+# Route tree for alerts
+route:
+  # Default receiver for unmatched alerts
+  receiver: 'default-receiver'
+
+  # Group alerts by labels for batching
+  group_by: ['alertname', 'severity', 'component']
+
+  # Wait time before sending initial notification
+  group_wait: 10s
+
+  # Wait time before sending updated notification
+  group_interval: 10s
+
+  # Minimum time between notifications for same group
+  repeat_interval: 12h
+
+  # Child routes
+  routes:
+    # Critical alerts go to PagerDuty
+    - match:
+        severity: critical
+      receiver: 'pagerduty-critical'
+      continue: true
+      group_wait: 0s
+      repeat_interval: 5m
+
+    # Warning alerts go to Slack
+    - match:
+        severity: warning
+      receiver: 'slack-warnings'
+      group_wait: 30s
+      repeat_interval: 6h
+
+    # All alerts also go to Slack for visibility
+    - match_re:
+        severity: .*
+      receiver: 'slack-all'
+
+# Receivers (notification channels)
+receivers:
+  # Default receiver (if no match)
+  - name: 'default-receiver'
+    slack_configs:
+      - channel: '#alerts'
+        title: '{{ .GroupLabels.alertname }}'
+        text: |
+          {{ range .Alerts }}
+          *Alert:* {{ .Annotations.summary }}
+          *Description:* {{ .Annotations.description }}
+          *Severity:* {{ .Labels.severity }}
+          *Component:* {{ .Labels.component }}
+          {{ end }}
+        send_resolved: true
+
+  # PagerDuty for critical alerts
+  - name: 'pagerduty-critical'
+    pagerduty_configs:
+      - service_key: '${PAGERDUTY_SERVICE_KEY}'  # Set via environment variable
+        description: '{{ .GroupLabels.alertname }}'
+        severity: 'critical'
+        details:
+          summary: '{{ .GroupLabels.alertname }}'
+          description: '{{ range .Alerts }}{{ .Annotations.description }}{{ end }}'
+          component: '{{ .GroupLabels.component }}'
+          runbook_url: '{{ range .Alerts }}{{ .Annotations.runbook_url }}{{ end }}'
+          dashboard_url: '{{ range .Alerts }}{{ .Annotations.dashboard_url }}{{ end }}'
+
+  # Slack for warning alerts
+  - name: 'slack-warnings'
+    slack_configs:
+      - channel: '#ml-platform-warnings'
+        title: '⚠️ Warning: {{ .GroupLabels.alertname }}'
+        text: |
+          *Alert:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          *Description:* {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+          *Severity:* {{ .GroupLabels.severity }}
+          *Component:* {{ .GroupLabels.component }}
+          *Labels:* {{ range .GroupLabels.SortedPairs }}{{ .Name }}={{ .Value }} {{ end }}
+          {{ range .Alerts }}
+          {{ if .Annotations.runbook_url }}
+          *Runbook:* {{ .Annotations.runbook_url }}
+          {{ end }}
+          {{ if .Annotations.dashboard_url }}
+          *Dashboard:* {{ .Annotations.dashboard_url }}
+          {{ end }}
+          {{ end }}
+        send_resolved: true
+        color: 'warning'
+
+  # Slack for all alerts (for visibility)
+  - name: 'slack-all'
+    slack_configs:
+      - channel: '#ml-platform-alerts'
+        title: |
+          {{ if eq .GroupLabels.severity "critical" }}🚨 CRITICAL{{ else }}⚠️ WARNING{{ end }}: {{ .GroupLabels.alertname }}
+        text: |
+          {{ if eq .GroupLabels.severity "critical" }}
+          🚨 *CRITICAL ALERT*
+          {{ else }}
+          ⚠️ *Warning*
+          {{ end }}
+
+          *Summary:* {{ range .Alerts }}{{ .Annotations.summary }}{{ end }}
+          *Description:* {{ range .Alerts }}{{ .Annotations.description }}{{ end }}
+
+          *Labels:*
+          {{ range .GroupLabels.SortedPairs }}
+          • {{ .Name }}: {{ .Value }}
+          {{ end }}
+
+          {{ range .Alerts }}
+          {{ if .Annotations.runbook_url }}
+          *Runbook:* <{{ .Annotations.runbook_url }}|View Runbook>
+          {{ end }}
+          {{ if .Annotations.dashboard_url }}
+          *Dashboard:* <{{ .Annotations.dashboard_url }}|View Dashboard>
+          {{ end }}
+          {{ end }}
+
+          *Firing Alerts:* {{ .Alerts | len }}
+        send_resolved: true
+        color: '{{ if eq .GroupLabels.severity "critical" }}danger{{ else }}warning{{ end }}'
+        footer: 'Prometheus Alertmanager'
+        ts: '{{ .GroupKey }}'
+
+# Inhibition rules (suppress lower severity alerts when higher severity is firing)
+inhibit_rules:
+  # Suppress warnings when critical alerts are firing
+  - source_match:
+      severity: 'critical'
+    target_match:
+      severity: 'warning'
+    equal: ['component', 'alertname']
+
+  # Suppress all alerts when service is down
+  - source_match:
+      alertname: 'ServiceDown'
+    target_match_re:
+      .*: .*
+    equal: []

@@ -1,0 +1,228 @@
+# Prometheus Alert Rules for Movie Recommender Service
+#
+# This file contains alert rules for monitoring the recommendation service.
+# Rules follow Prometheus alerting best practices with proper labels,
+# annotations, and severity levels.
+#
+# To use these rules, add this file to your Prometheus configuration:
+# alerting:
+#   alertmanagers:
+#     - static_configs:
+#         - targets: ['alertmanager:9093']
+# rule_files:
+#   - "/etc/prometheus/alerts.yml"
+
+groups:
+  - name: recommendation_service_alerts
+    interval: 30s
+    rules:
+      # ========================================================================
+      # Critical Alerts
+      # ========================================================================
+
+      - alert: HighErrorRate
+        expr: |
+          100 * (
+            sum(rate(http_requests_total{status=~"5xx"}[5m]))
+            /
+            sum(rate(http_requests_total[5m]))
+          ) > 5
+        for: 5m
+        labels:
+          severity: critical
+          component: api
+          team: ml-platform
+        annotations:
+          summary: "High error rate detected"
+          description: "Error rate is {{ $value | humanizePercentage }} for the last 5 minutes. This exceeds the 5% threshold."
+          runbook_url: "https://wiki.example.com/runbooks/high-error-rate"
+          dashboard_url: "http://grafana.example.com/d/recommender-overview"
+
+      - alert: ServiceDown
+        expr: up{job="recommendation-service"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          component: api
+          team: ml-platform
+        annotations:
+          summary: "Recommendation service is down"
+          description: "The recommendation service has been down for more than 1 minute."
+          runbook_url: "https://wiki.example.com/runbooks/service-down"
+
+      - alert: RedisConnectionFailure
+        expr: |
+          increase(http_requests_total{endpoint="/health"}[5m]) > 0
+          AND
+          (
+            cache_hits_total == 0 AND cache_misses_total == 0
+            OR
+            rate(cache_operation_duration_seconds{operation="get"}[5m]) == 0
+          )
+        for: 5m
+        labels:
+          severity: critical
+          component: cache
+          team: ml-platform
+        annotations:
+          summary: "Redis connection failure"
+          description: "Redis appears to be disconnected. Cache operations are failing."
+          runbook_url: "https://wiki.example.com/runbooks/redis-failure"
+
+      # ========================================================================
+      # Warning Alerts
+      # ========================================================================
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (le, endpoint)
+          ) > 0.2
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+          team: ml-platform
+        annotations:
+          summary: "High P95 latency detected"
+          description: "P95 latency is {{ $value }}s ({{ $value | humanizeDuration }}) for the last 5 minutes. This exceeds the 200ms threshold."
+          endpoint: "{{ $labels.endpoint }}"
+          dashboard_url: "http://grafana.example.com/d/recommender-overview"
+
+      - alert: LowCacheHitRate
+        expr: |
+          (
+            sum(rate(cache_hits_total[10m]))
+            /
+            (sum(rate(cache_hits_total[10m])) + sum(rate(cache_misses_total[10m])))
+          ) < 0.30
+        for: 10m
+        labels:
+          severity: warning
+          component: cache
+          team: ml-platform
+        annotations:
+          summary: "Low cache hit rate"
+          description: "Cache hit rate is {{ $value | humanizePercentage }} for the last 10 minutes. This is below the 30% threshold."
+          runbook_url: "https://wiki.example.com/runbooks/low-cache-hit-rate"
+          dashboard_url: "http://grafana.example.com/d/recommender-overview"
+
+      - alert: ModelScoreAnomaly
+        expr: |
+          (
+            avg_over_time(model_prediction_score_sum[30m])
+            /
+            avg_over_time(model_prediction_score_count[30m])
+          ) < 0.3 OR
+          (
+            avg_over_time(model_prediction_score_sum[30m])
+            /
+            avg_over_time(model_prediction_score_count[30m])
+          ) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          component: model
+          team: ml-platform
+        annotations:
+          summary: "Model score distribution anomaly"
+          description: "Average model prediction score is {{ $value }}. Expected range is [0.3, 0.9]. This may indicate model drift or data quality issues."
+          runbook_url: "https://wiki.example.com/runbooks/model-anomaly"
+          dashboard_url: "http://grafana.example.com/d/recommender-overview"
+
+      - alert: HighActiveConnections
+        expr: active_connections > 150
+        for: 5m
+        labels:
+          severity: warning
+          component: api
+          team: ml-platform
+        annotations:
+          summary: "High number of active connections"
+          description: "Active connections: {{ $value }}. This exceeds the 150 connection threshold."
+          dashboard_url: "http://grafana.example.com/d/recommender-overview"
+
+      - alert: SlowRecommendationGeneration
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(recommendation_latency_seconds_bucket[5m])) by (le)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          component: recommendations
+          team: ml-platform
+        annotations:
+          summary: "Slow recommendation generation"
+          description: "P95 recommendation latency is {{ $value }}s ({{ $value | humanizeDuration }}). This exceeds the 500ms target."
+          dashboard_url: "http://grafana.example.com/d/recommender-overview"
+
+      - alert: FrequentFallbackUsage
+        expr: |
+          rate(fallback_used_total[10m]) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+          component: recommendations
+          team: ml-platform
+        annotations:
+          summary: "Frequent fallback strategy usage"
+          description: "Fallback strategies are being used at rate {{ $value }} req/s. This may indicate issues with model or retrieval system."
+          fallback_type: "{{ $labels.fallback_type }}"
+          dashboard_url: "http://grafana.example.com/d/recommender-overview"
+
+      - alert: HighMemoryUsage
+        expr: |
+          100 * (
+            container_memory_usage_bytes{container="movie-recommender-service"}
+            /
+            container_spec_memory_limit_bytes{container="movie-recommender-service"}
+          ) > 90
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+          team: ml-platform
+        annotations:
+          summary: "High memory usage"
+          description: "Memory usage is {{ $value }}% for the recommendation service. This exceeds the 90% threshold."
+          dashboard_url: "http://grafana.example.com/d/recommender-overview"
+
+      - alert: HighCPUUsage
+        expr: |
+          100 * avg(rate(container_cpu_usage_seconds_total{container="movie-recommender-service"}[5m])) > 90
+        for: 5m
+        labels:
+          severity: warning
+          component: system
+          team: ml-platform
+        annotations:
+          summary: "High CPU usage"
+          description: "CPU usage is {{ $value }}% for the recommendation service. This exceeds the 90% threshold."
+          dashboard_url: "http://grafana.example.com/d/recommender-overview"
+
+      - alert: ContainerRestartLoop
+        expr: |
+          increase(container_start_time_seconds{container="movie-recommender-service"}[15m]) > 3
+        for: 15m
+        labels:
+          severity: warning
+          component: system
+          team: ml-platform
+        annotations:
+          summary: "Container restart loop detected"
+          description: "The recommendation service container has restarted {{ $value }} times in the last 15 minutes."
+          dashboard_url: "http://grafana.example.com/d/recommender-overview"
+
+      - alert: LowRequestRate
+        expr: |
+          sum(rate(http_requests_total[10m])) < 1
+        for: 10m
+        labels:
+          severity: warning
+          component: api
+          team: ml-platform
+        annotations:
+          summary: "Low request rate"
+          description: "Request rate is {{ $value }} req/s. This is below normal levels and may indicate traffic issues."
+          dashboard_url: "http://grafana.example.com/d/recommender-overview"
