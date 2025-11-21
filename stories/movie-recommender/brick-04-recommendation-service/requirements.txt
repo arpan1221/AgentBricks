@@ -1,0 +1,32 @@
+# FastAPI and server
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+
+# Redis for caching
+redis==5.0.1
+
+# PyTorch for model inference
+torch==2.1.0
+
+# FAISS for vector search
+faiss-cpu==1.7.4
+
+# Data processing
+numpy==1.26.2
+pandas==2.1.3
+
+# MLflow for model registry
+mlflow==2.9.1
+
+# Prometheus metrics
+prometheus-client==0.19.0
+
+# HTTP client for health checks
+httpx==0.25.2
+requests==2.31.0
+
+# Utilities
+python-dotenv==1.0.0
+python-json-logger==2.0.7

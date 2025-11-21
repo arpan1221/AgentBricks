@@ -1,0 +1,58 @@
+services:
+  recommendation-service:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: movie-recommender-service
+    ports:
+      - "8001:8000"  # Host port:Container port (changed from 8000:8000)
+    environment:
+      - MODEL_PATH=/app/models/ncf_best.pth
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - REDIS_DB=0
+      - CACHE_TTL=300
+      - FAISS_INDEX_PATH=/app/data/movie_embeddings.faiss
+      - FAISS_MAPPING_PATH=/app/data/movie_mappings.json
+      - EMBEDDING_DIM=64
+      - USE_GPU=false
+    volumes:
+      - ./models:/app/models:ro
+      - ./data:/app/data:ro
+      - ./logs:/app/logs
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+    networks:
+      - recommender-network
+
+  redis:
+    image: redis:7.2-alpine
+    container_name: movie-recommender-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+    networks:
+      - recommender-network
+
+volumes:
+  redis-data:
+
+networks:
+  recommender-network:
+    driver: bridge
