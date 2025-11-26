@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: 💬 Discussions
+    url: https://github.com/YOUR_USERNAME/AgentBricks/discussions
+    about: Ask questions and discuss ideas with the community
+  - name: 📚 Documentation
+    url: https://github.com/YOUR_USERNAME/AgentBricks/tree/main/docs
+    about: Check our documentation for answers
+  - name: 🐛 Bug Reports
+    url: https://github.com/YOUR_USERNAME/AgentBricks/issues/new?template=bug_report.md
+    about: Report a bug or unexpected behavior
