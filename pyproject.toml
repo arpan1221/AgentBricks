@@ -8,7 +8,11 @@ version = "0.1.0"
 description = "Story-driven ML system design learning platform"
 readme = "README.md"
 requires-python = ">=3.11"
-license = {text = "MIT"}
+license = { text = "MIT" }
+dependencies = ["click>=8.1.7", "rich>=13.7.0"]
+
+[project.scripts]
+agentbricks = "agent.cli:cli"
 
 [project.optional-dependencies]
 dev = [
@@ -51,7 +55,7 @@ select = ["E", "F", "I"]
 ignore = []
 
 [tool.ruff.per-file-ignores]
-"__init__.py" = ["F401"]  # Allow unused imports in __init__.py
+"__init__.py" = ["F401"] # Allow unused imports in __init__.py
 
 # pytest configuration
 [tool.pytest.ini_options]
@@ -96,10 +100,5 @@ show_error_context = true
 pretty = true
 
 [[tool.mypy.overrides]]
-module = [
-    "redis.*",
-    "motor.*",
-    "pymongo.*",
-    "aiokafka.*",
-]
+module = ["redis.*", "motor.*", "pymongo.*", "aiokafka.*"]
 ignore_missing_imports = true
