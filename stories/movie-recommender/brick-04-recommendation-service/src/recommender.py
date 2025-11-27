@@ -8,76 +8,87 @@ This module provides a production-ready recommendation API with:
 - Batch recommendation support
 """
 
-import logging
-import time
-from pathlib import Path
-from typing import Dict, List, Optional, Tuple, Any
-from datetime import datetime, timedelta
-import numpy as np
-import torch
-import faiss
-import redis
-from prometheus_client import Counter, Histogram, Gauge
-from fastapi import FastAPI, HTTPException, Query, Request, Depends
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
 import json
+import logging
+
+# Import model and feature store
+import sys
+import time
 from contextlib import asynccontextmanager
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
 
-# Import model and feature store (adjust imports based on project structure)
-# from src.model import NCF
-# from src.feature_store import FeatureStore
+import faiss
+import numpy as np
+import redis
+import torch
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import JSONResponse
+from prometheus_client import Counter, Gauge, Histogram
+from pydantic import BaseModel, Field
 
+# Add brick-03 path for model import
+brick03_path = Path(__file__).parent.parent.parent / "brick-03-model-training" / "src"
+if str(brick03_path) not in sys.path:
+    sys.path.insert(0, str(brick03_path))
+
+# Initialize logger early for import error handling
 logger = logging.getLogger(__name__)
+
+try:
+    from model import NCF
+except ImportError:
+    logger.warning("Could not import NCF model. Model loading will be disabled.")
+    NCF = None
+
+# Add brick-02 path for feature store import
+brick02_path = Path(__file__).parent.parent.parent / "brick-02-feature-engineering" / "src"
+if str(brick02_path) not in sys.path:
+    sys.path.insert(0, str(brick02_path))
+
+try:
+    from feature_store import FeatureStore
+except ImportError:
+    logger.warning("Could not import FeatureStore. Feature store will be disabled.")
+    FeatureStore = None
 
 # Prometheus metrics
 REQUEST_COUNTER = Counter(
-    'recommendation_requests_total',
-    'Total number of recommendation requests',
-    ['endpoint', 'status']
+    "recommendation_requests_total",
+    "Total number of recommendation requests",
+    ["endpoint", "status"],
 )
 
 REQUEST_DURATION = Histogram(
-    'recommendation_request_duration_seconds',
-    'Request duration in seconds',
-    ['endpoint']
+    "recommendation_request_duration_seconds", "Request duration in seconds", ["endpoint"]
 )
 
-CACHE_HITS = Counter(
-    'recommendation_cache_hits_total',
-    'Total number of cache hits',
-    ['type']
-)
+CACHE_HITS = Counter("recommendation_cache_hits_total", "Total number of cache hits", ["type"])
 
 CACHE_MISSES = Counter(
-    'recommendation_cache_misses_total',
-    'Total number of cache misses',
-    ['type']
+    "recommendation_cache_misses_total", "Total number of cache misses", ["type"]
 )
 
 ACTIVE_REQUESTS = Gauge(
-    'recommendation_active_requests',
-    'Number of active recommendation requests'
+    "recommendation_active_requests", "Number of active recommendation requests"
 )
 
 
 # Pydantic models
 class RecommendationItem(BaseModel):
     """Single recommendation item."""
+
     movie_id: str = Field(..., description="Movie identifier")
     score: float = Field(..., ge=0.0, le=1.0, description="Recommendation score (0-1)")
 
     class Config:
-        json_schema_extra = {
-            "example": {
-                "movie_id": "movie_123",
-                "score": 0.85
-            }
-        }
+        json_schema_extra = {"example": {"movie_id": "movie_123", "score": 0.85}}
 
 
 class RecommendationResponse(BaseModel):
     """Recommendation response."""
+
     user_id: str = Field(..., description="User identifier")
     recommendations: List[RecommendationItem] = Field(..., description="List of recommendations")
     cached: bool = Field(False, description="Whether results came from cache")
@@ -91,37 +102,34 @@ class RecommendationResponse(BaseModel):
                 "user_id": "user_456",
                 "recommendations": [
                     {"movie_id": "movie_123", "score": 0.85},
-                    {"movie_id": "movie_789", "score": 0.82}
+                    {"movie_id": "movie_789", "score": 0.82},
                 ],
                 "cached": False,
                 "retrieval_time_ms": 15.2,
                 "ranking_time_ms": 45.3,
-                "total_time_ms": 62.5
+                "total_time_ms": 62.5,
             }
         }
 
 
 class BatchRecommendationRequest(BaseModel):
     """Batch recommendation request."""
+
     user_ids: List[str] = Field(..., min_items=1, max_items=100, description="List of user IDs")
     k: int = Field(10, ge=1, le=100, description="Number of recommendations per user")
     force_refresh: bool = Field(False, description="Force refresh cache")
 
     class Config:
         json_schema_extra = {
-            "example": {
-                "user_ids": ["user_1", "user_2"],
-                "k": 10,
-                "force_refresh": False
-            }
+            "example": {"user_ids": ["user_1", "user_2"], "k": 10, "force_refresh": False}
         }
 
 
 class BatchRecommendationResponse(BaseModel):
     """Batch recommendation response."""
+
     recommendations: Dict[str, List[RecommendationItem]] = Field(
-        ...,
-        description="Dictionary mapping user_id to recommendations"
+        ..., description="Dictionary mapping user_id to recommendations"
     )
     total_time_ms: float = Field(..., description="Total batch processing time in milliseconds")
 
@@ -130,9 +138,9 @@ class BatchRecommendationResponse(BaseModel):
             "example": {
                 "recommendations": {
                     "user_1": [{"movie_id": "movie_123", "score": 0.85}],
-                    "user_2": [{"movie_id": "movie_456", "score": 0.82}]
+                    "user_2": [{"movie_id": "movie_456", "score": 0.82}],
                 },
-                "total_time_ms": 125.3
+                "total_time_ms": 125.3,
             }
         }
 
@@ -147,10 +155,12 @@ class RecommenderState:
         self.faiss_index: Optional[faiss.Index] = None
         self.movie_id_to_index: Dict[str, int] = {}
         self.index_to_movie_id: Dict[int, str] = {}
+        self.user_id_to_index: Dict[str, int] = {}
+        self.index_to_user_id: Dict[int, str] = {}
         self.popular_movies: List[str] = []
         self.trending_movies: List[str] = []
         self.feature_store = None
-        self.device: torch.device = torch.device('cpu')
+        self.device: torch.device = torch.device("cpu")
 
 
 state = RecommenderState()
@@ -169,7 +179,8 @@ async def lifespan(app: FastAPI):
 
     # Load configuration from environment if not already set
     import os
-    if not hasattr(app.state, 'config') or not app.state.config:
+
+    if not hasattr(app.state, "config") or not app.state.config:
         app.state.config = {
             "model_path": os.getenv("MODEL_PATH", "./models/ncf_best.pth"),
             "redis_host": os.getenv("REDIS_HOST", "localhost"),
@@ -180,20 +191,60 @@ async def lifespan(app: FastAPI):
             "faiss_mapping_path": os.getenv("FAISS_MAPPING_PATH", "./data/movie_mappings.json"),
             "embedding_dim": int(os.getenv("EMBEDDING_DIM", "64")),
             "popular_movies_path": os.getenv("POPULAR_MOVIES_PATH", "./data/popular_movies.json"),
-            "trending_movies_path": os.getenv("TRENDING_MOVIES_PATH", "./data/trending_movies.json"),
-            "use_gpu": os.getenv("USE_GPU", "false").lower() == "true"
+            "trending_movies_path": os.getenv(
+                "TRENDING_MOVIES_PATH", "./data/trending_movies.json"
+            ),
+            "use_gpu": os.getenv("USE_GPU", "false").lower() == "true",
         }
 
     try:
         # Load model
         model_path = Path(app.state.config.get("model_path", "./models/ncf_best.pth"))
-        if model_path.exists():
-            # Load model (adjust based on actual model class)
-            # state.model = NCF.load(str(model_path), device=state.device)
-            # For now, create a placeholder
-            logger.info(f"Model loaded from {model_path}")
+        if model_path.exists() and NCF is not None:
+            try:
+                state.model = NCF.load(str(model_path), device=state.device)
+                state.model.eval()  # Set to evaluation mode
+                logger.info(f"Model loaded from {model_path}")
+
+                # Load ID to index mappings if they exist
+                model_dir = model_path.parent
+                user_mapping_path = model_dir / "user_id_mappings.json"
+                movie_mapping_path = model_dir / "movie_id_mappings.json"
+
+                # Load user ID mappings
+                if user_mapping_path.exists():
+                    with open(user_mapping_path) as f:
+                        state.user_id_to_index = json.load(f)
+                        state.index_to_user_id = {v: k for k, v in state.user_id_to_index.items()}
+                    logger.info(f"Loaded {len(state.user_id_to_index)} user ID mappings")
+                else:
+                    logger.warning(f"User ID mappings not found at {user_mapping_path}")
+
+                # Load movie ID mappings (also check FAISS mapping path)
+                if movie_mapping_path.exists():
+                    with open(movie_mapping_path) as f:
+                        movie_mappings = json.load(f)
+                        # Convert to integer indices if needed
+                        state.movie_id_to_index = {
+                            k: int(v) if isinstance(v, (int, str)) else v
+                            for k, v in movie_mappings.items()
+                        }
+                        state.index_to_movie_id = {v: k for k, v in state.movie_id_to_index.items()}
+                    logger.info(
+                        "Loaded %d movie ID mappings from model directory",
+                        len(state.movie_id_to_index),
+                    )
+                else:
+                    logger.warning(f"Movie ID mappings not found at {movie_mapping_path}")
+
+            except Exception as e:
+                logger.error(f"Failed to load model: {e}", exc_info=True)
+                state.model = None
         else:
-            logger.warning(f"Model not found at {model_path}, using placeholder")
+            if not model_path.exists():
+                logger.warning(f"Model not found at {model_path}, using placeholder")
+            if NCF is None:
+                logger.warning("NCF model class not available, using placeholder")
 
         # Initialize Redis
         redis_host = app.state.config.get("redis_host", "localhost")
@@ -207,7 +258,7 @@ async def lifespan(app: FastAPI):
                 db=redis_db,
                 decode_responses=True,
                 socket_connect_timeout=2,
-                socket_timeout=2
+                socket_timeout=2,
             )
             # Test connection
             state.redis_client.ping()
@@ -225,7 +276,9 @@ async def lifespan(app: FastAPI):
                 state.faiss_index = faiss.read_index(str(index_path))
 
                 # Load movie ID mappings
-                mapping_path = Path(app.state.config.get("faiss_mapping_path", "./data/movie_mappings.json"))
+                mapping_path = Path(
+                    app.state.config.get("faiss_mapping_path", "./data/movie_mappings.json")
+                )
                 if mapping_path.exists():
                     with open(mapping_path) as f:
                         mappings = json.load(f)
@@ -242,12 +295,16 @@ async def lifespan(app: FastAPI):
 
         # Load popular/trending movies
         try:
-            popular_path = Path(app.state.config.get("popular_movies_path", "./data/popular_movies.json"))
+            popular_path = Path(
+                app.state.config.get("popular_movies_path", "./data/popular_movies.json")
+            )
             if popular_path.exists():
                 with open(popular_path) as f:
                     state.popular_movies = json.load(f)
 
-            trending_path = Path(app.state.config.get("trending_movies_path", "./data/trending_movies.json"))
+            trending_path = Path(
+                app.state.config.get("trending_movies_path", "./data/trending_movies.json")
+            )
             if trending_path.exists():
                 with open(trending_path) as f:
                     state.trending_movies = json.load(f)
@@ -256,7 +313,7 @@ async def lifespan(app: FastAPI):
 
         # Set device
         if torch.cuda.is_available() and app.state.config.get("use_gpu", False):
-            state.device = torch.device('cuda')
+            state.device = torch.device("cuda")
             if state.model:
                 state.model = state.model.to(state.device)
             logger.info("Using GPU for inference")
@@ -292,7 +349,7 @@ app = FastAPI(
     - Fallback strategies for cold-start users
     - Batch recommendation support
     """,
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 # Store config in app state
@@ -309,6 +366,7 @@ async def startup_event():
     """Additional startup tasks."""
     # Load configuration from environment or config file
     import os
+
     app.state.config = {
         "model_path": os.getenv("MODEL_PATH", "./models/ncf_best.pth"),
         "redis_host": os.getenv("REDIS_HOST", "localhost"),
@@ -320,30 +378,79 @@ async def startup_event():
         "embedding_dim": int(os.getenv("EMBEDDING_DIM", "64")),
         "popular_movies_path": os.getenv("POPULAR_MOVIES_PATH", "./data/popular_movies.json"),
         "trending_movies_path": os.getenv("TRENDING_MOVIES_PATH", "./data/trending_movies.json"),
-        "use_gpu": os.getenv("USE_GPU", "false").lower() == "true"
+        "use_gpu": os.getenv("USE_GPU", "false").lower() == "true",
     }
 
 
 def get_user_embedding(user_id: str) -> np.ndarray:
     """
-    Get user embedding from feature store or model.
+    Get user embedding from model or feature store.
+
+    Extracts user embedding from the NCF model's embedding layers.
+    Falls back to feature store if model is not available.
 
     Args:
         user_id: User identifier
 
     Returns:
         User embedding vector
+
+    Raises:
+        ValueError: If user_id cannot be mapped to an index
     """
-    # TODO: Implement actual user embedding retrieval
-    # For now, return random embedding as placeholder
     embedding_dim = app.state.config.get("embedding_dim", 64)
-    return np.random.randn(embedding_dim).astype('float32')
+
+    # Try to get embedding from model
+    if state.model is not None:
+        # Get user index
+        if user_id in state.user_id_to_index:
+            user_idx = state.user_id_to_index[user_id]
+        else:
+            # Unknown user - use a default index (0) or hash-based
+            # In production, you might want to handle new users differently
+            logger.warning(f"User {user_id} not in mapping, using hash-based index")
+            user_idx = hash(user_id) % state.model.num_users
+
+        # Extract embedding from model
+        # NCF has two embedding paths: GMF and MLP
+        # We'll use the MLP embedding as it's typically richer
+        with torch.no_grad():
+            user_idx_tensor = torch.tensor([user_idx], dtype=torch.long).to(state.device)
+
+            # Get MLP embedding (combining both paths for richer representation)
+            user_emb_mlp = state.model.user_embedding_mlp(user_idx_tensor)
+            user_emb_gmf = state.model.user_embedding_gmf(user_idx_tensor)
+
+            # Combine embeddings (average or concatenate)
+            # Using average for simplicity, but concatenation is also valid
+            user_embedding = (user_emb_mlp + user_emb_gmf) / 2.0
+
+            # Convert to numpy
+            embedding = user_embedding.cpu().numpy().flatten().astype("float32")
+
+            return embedding
+
+    # Fallback: try feature store
+    if state.feature_store is not None:
+        try:
+            from datetime import datetime
+
+            user_features = state.feature_store.get_user_features(user_id, datetime.now())
+
+            # Extract embedding from features if available
+            if "embedding" in user_features:
+                embedding = np.array(user_features["embedding"], dtype="float32")
+                if embedding.shape[0] == embedding_dim:
+                    return embedding
+        except Exception as e:
+            logger.warning(f"Failed to get embedding from feature store: {e}")
+
+    # Final fallback: return random embedding
+    logger.warning(f"Using random embedding for user {user_id}")
+    return np.random.randn(embedding_dim).astype("float32")
 
 
-async def retrieve_candidates(
-    user_id: str,
-    k: int = 100
-) -> List[str]:
+async def retrieve_candidates(user_id: str, k: int = 100) -> List[str]:
     """
     Stage 1: Retrieve top-k candidates using FAISS.
 
@@ -374,10 +481,7 @@ async def retrieve_candidates(
     return candidate_movie_ids
 
 
-async def rank_candidates(
-    user_id: str,
-    candidate_movie_ids: List[str]
-) -> List[Tuple[str, float]]:
+async def rank_candidates(user_id: str, candidate_movie_ids: List[str]) -> List[Tuple[str, float]]:
     """
     Stage 2: Rank candidates using NCF model.
 
@@ -396,9 +500,30 @@ async def rank_candidates(
         return []
 
     # Convert user_id and movie_ids to integer indices
-    # TODO: Implement actual ID to index mapping
-    user_idx = hash(user_id) % 10000  # Placeholder
-    movie_indices = [hash(mid) % 5000 for mid in candidate_movie_ids]  # Placeholder
+    # Get user index
+    if user_id in state.user_id_to_index:
+        user_idx = state.user_id_to_index[user_id]
+    else:
+        # Unknown user - use hash-based mapping with model's num_users
+        logger.warning(f"User {user_id} not in mapping, using hash-based index")
+        if state.model is not None:
+            user_idx = hash(user_id) % state.model.num_users
+        else:
+            user_idx = hash(user_id) % 10000  # Fallback
+
+    # Get movie indices
+    movie_indices = []
+    for movie_id in candidate_movie_ids:
+        if movie_id in state.movie_id_to_index:
+            movie_indices.append(state.movie_id_to_index[movie_id])
+        else:
+            # Unknown movie - use hash-based mapping
+            logger.warning(f"Movie {movie_id} not in mapping, using hash-based index")
+            if state.model is not None:
+                movie_idx = hash(movie_id) % state.model.num_items
+            else:
+                movie_idx = hash(movie_id) % 5000  # Fallback
+            movie_indices.append(movie_idx)
 
     # Batch prediction
     user_ids_tensor = torch.tensor([user_idx] * len(movie_indices), dtype=torch.long)
@@ -420,10 +545,7 @@ async def rank_candidates(
     return ranked
 
 
-async def get_fallback_recommendations(
-    user_id: str,
-    k: int = 10
-) -> List[Tuple[str, float]]:
+async def get_fallback_recommendations(user_id: str, k: int = 10) -> List[Tuple[str, float]]:
     """
     Get fallback recommendations when no personalized recommendations available.
 
@@ -454,10 +576,7 @@ async def get_fallback_recommendations(
     return []
 
 
-async def get_cached_recommendations(
-    user_id: str,
-    k: int
-) -> Optional[List[RecommendationItem]]:
+async def get_cached_recommendations(user_id: str, k: int) -> Optional[List[RecommendationItem]]:
     """
     Get recommendations from Redis cache.
 
@@ -476,11 +595,11 @@ async def get_cached_recommendations(
         cached = state.redis_client.get(cache_key)
 
         if cached:
-            CACHE_HITS.labels(type='recommendations').inc()
+            CACHE_HITS.labels(type="recommendations").inc()
             data = json.loads(cached)
             return [RecommendationItem(**item) for item in data]
         else:
-            CACHE_MISSES.labels(type='recommendations').inc()
+            CACHE_MISSES.labels(type="recommendations").inc()
             return None
 
     except Exception as e:
@@ -489,10 +608,7 @@ async def get_cached_recommendations(
 
 
 async def cache_recommendations(
-    user_id: str,
-    k: int,
-    recommendations: List[RecommendationItem],
-    ttl: int = 300
+    user_id: str, k: int, recommendations: List[RecommendationItem], ttl: int = 300
 ) -> None:
     """
     Cache recommendations in Redis.
@@ -509,11 +625,7 @@ async def cache_recommendations(
     try:
         cache_key = f"recommendations:{user_id}:{k}"
         data = [rec.dict() for rec in recommendations]
-        state.redis_client.setex(
-            cache_key,
-            ttl,
-            json.dumps(data)
-        )
+        state.redis_client.setex(cache_key, ttl, json.dumps(data))
     except Exception as e:
         logger.warning(f"Cache write failed: {e}")
 
@@ -529,13 +641,13 @@ async def cache_recommendations(
 
     Results are cached in Redis for 5 minutes by default.
     """,
-    tags=["Recommendations"]
+    tags=["Recommendations"],
 )
 async def get_recommendations(
     user_id: str,
     k: int = Query(10, ge=1, le=100, description="Number of recommendations"),
     force_refresh: bool = Query(False, description="Force refresh cache"),
-    request: Request = None
+    request: Request = None,
 ) -> RecommendationResponse:
     """
     Get personalized recommendations for a user.
@@ -561,18 +673,20 @@ async def get_recommendations(
             cached_recommendations = await get_cached_recommendations(user_id, k)
             if cached_recommendations:
                 total_time_ms = (time.time() - start_time) * 1000
-                REQUEST_COUNTER.labels(endpoint='get_recommendations', status='success').inc()
-                REQUEST_DURATION.labels(endpoint='get_recommendations').observe(total_time_ms / 1000)
+                REQUEST_COUNTER.labels(endpoint="get_recommendations", status="success").inc()
+                REQUEST_DURATION.labels(endpoint="get_recommendations").observe(
+                    total_time_ms / 1000
+                )
                 ACTIVE_REQUESTS.dec()
 
                 logger.info(
-                    f"Recommendations retrieved from cache",
+                    "Recommendations retrieved from cache",
                     extra={
                         "user_id": user_id,
                         "k": k,
                         "total_time_ms": total_time_ms,
-                        "cached": True
-                    }
+                        "cached": True,
+                    },
                 )
 
                 return RecommendationResponse(
@@ -581,7 +695,7 @@ async def get_recommendations(
                     cached=True,
                     retrieval_time_ms=0.0,
                     ranking_time_ms=0.0,
-                    total_time_ms=total_time_ms
+                    total_time_ms=total_time_ms,
                 )
 
         # Stage 1: Retrieval
@@ -609,29 +723,26 @@ async def get_recommendations(
 
         # Cache results
         await cache_recommendations(
-            user_id,
-            k,
-            recommendations,
-            ttl=app.state.config.get("cache_ttl", 300)
+            user_id, k, recommendations, ttl=app.state.config.get("cache_ttl", 300)
         )
 
         total_time = (time.time() - start_time) * 1000
 
         # Log metrics
-        REQUEST_COUNTER.labels(endpoint='get_recommendations', status='success').inc()
-        REQUEST_DURATION.labels(endpoint='get_recommendations').observe(total_time / 1000)
+        REQUEST_COUNTER.labels(endpoint="get_recommendations", status="success").inc()
+        REQUEST_DURATION.labels(endpoint="get_recommendations").observe(total_time / 1000)
 
         # Log request
         logger.info(
-            f"Recommendations generated",
+            "Recommendations generated",
             extra={
                 "user_id": user_id,
                 "k": k,
                 "total_time_ms": total_time,
                 "retrieval_time_ms": retrieval_time,
                 "ranking_time_ms": ranking_time,
-                "cached": False
-            }
+                "cached": False,
+            },
         )
 
         ACTIVE_REQUESTS.dec()
@@ -642,21 +753,16 @@ async def get_recommendations(
             cached=False,
             retrieval_time_ms=retrieval_time,
             ranking_time_ms=ranking_time,
-            total_time_ms=total_time
+            total_time_ms=total_time,
         )
 
     except Exception as e:
-        REQUEST_COUNTER.labels(endpoint='get_recommendations', status='error').inc()
+        REQUEST_COUNTER.labels(endpoint="get_recommendations", status="error").inc()
         ACTIVE_REQUESTS.dec()
         logger.error(
-            f"Failed to generate recommendations: {e}",
-            extra={"user_id": user_id},
-            exc_info=True
+            f"Failed to generate recommendations: {e}", extra={"user_id": user_id}, exc_info=True
         )
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate recommendations: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Failed to generate recommendations: {str(e)}")
 
 
 @app.post(
@@ -667,10 +773,10 @@ async def get_recommendations(
     Get personalized recommendations for multiple users in a single request.
     Uses batch prediction for efficiency.
     """,
-    tags=["Recommendations"]
+    tags=["Recommendations"],
 )
 async def get_batch_recommendations(
-    request_body: BatchRecommendationRequest
+    request_body: BatchRecommendationRequest,
 ) -> BatchRecommendationResponse:
     """
     Get recommendations for multiple users.
@@ -708,30 +814,23 @@ async def get_batch_recommendations(
 
         total_time = (time.time() - start_time) * 1000
 
-        REQUEST_COUNTER.labels(endpoint='batch_recommendations', status='success').inc()
-        REQUEST_DURATION.labels(endpoint='batch_recommendations').observe(total_time / 1000)
+        REQUEST_COUNTER.labels(endpoint="batch_recommendations", status="success").inc()
+        REQUEST_DURATION.labels(endpoint="batch_recommendations").observe(total_time / 1000)
         ACTIVE_REQUESTS.dec()
 
         logger.info(
-            f"Batch recommendations generated",
-            extra={
-                "num_users": len(user_ids),
-                "total_time_ms": total_time
-            }
+            "Batch recommendations generated",
+            extra={"num_users": len(user_ids), "total_time_ms": total_time},
         )
 
-        return BatchRecommendationResponse(
-            recommendations=results,
-            total_time_ms=total_time
-        )
+        return BatchRecommendationResponse(recommendations=results, total_time_ms=total_time)
 
     except Exception as e:
-        REQUEST_COUNTER.labels(endpoint='batch_recommendations', status='error').inc()
+        REQUEST_COUNTER.labels(endpoint="batch_recommendations", status="error").inc()
         ACTIVE_REQUESTS.dec()
         logger.error(f"Failed to generate batch recommendations: {e}", exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate batch recommendations: {str(e)}"
+            status_code=500, detail=f"Failed to generate batch recommendations: {str(e)}"
         )
 
 
@@ -743,9 +842,10 @@ async def health_check() -> Dict[str, Any]:
         "timestamp": datetime.now().isoformat(),
         "components": {
             "model": state.model is not None,
-            "redis": state.redis_client is not None and (state.redis_client.ping() if state.redis_client else False),
-            "faiss": state.faiss_index is not None and state.faiss_index.ntotal > 0
-        }
+            "redis": state.redis_client is not None
+            and (state.redis_client.ping() if state.redis_client else False),
+            "faiss": state.faiss_index is not None and state.faiss_index.ntotal > 0,
+        },
     }
 
     if all(health["components"].values()):
@@ -760,6 +860,4 @@ async def get_metrics() -> Dict[str, Any]:
     """Get Prometheus metrics summary."""
     # This would typically be exposed via Prometheus client library
     # For now, return basic metrics
-    return {
-        "message": "Metrics available at /metrics endpoint (Prometheus format)"
-    }
+    return {"message": "Metrics available at /metrics endpoint (Prometheus format)"}

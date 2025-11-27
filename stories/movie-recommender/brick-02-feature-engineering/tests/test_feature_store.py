@@ -12,13 +12,21 @@ from src.feature_store import FeatureStore
 
 @pytest.fixture
 def temp_db():
-    """Create a temporary database file for testing."""
-    with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-        db_path = f.name
+    """
+    Create a temporary database file path for testing.
+
+    Returns a path that doesn't exist yet - DuckDB will create
+    the database file when it connects.
+    """
+    # Generate a unique temporary file path without creating the file
+    # DuckDB will create the database file when we connect
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)  # Close the file descriptor
+    os.unlink(db_path)  # Delete the empty file - DuckDB will create it
 
     yield db_path
 
-    # Cleanup
+    # Cleanup: remove database file if it exists
     if os.path.exists(db_path):
         os.unlink(db_path)
 

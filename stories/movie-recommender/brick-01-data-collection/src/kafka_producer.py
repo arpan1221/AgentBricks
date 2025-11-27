@@ -9,19 +9,23 @@ import asyncio
 import json
 import logging
 import os
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
 
 try:
     from aiokafka import AIOKafkaProducer
     from aiokafka.errors import KafkaError
+
     AIOKAFKA_AVAILABLE = True
 except ImportError:
     AIOKAFKA_AVAILABLE = False
+
     # Create stub classes for type hints
     class AIOKafkaProducer:
         pass
+
     class KafkaError(Exception):
         pass
+
 
 logger = logging.getLogger(__name__)
 
@@ -69,11 +73,7 @@ class KafkaEventProducer:
         >>> asyncio.run(main())
     """
 
-    def __init__(
-        self,
-        bootstrap_servers: str,
-        topic_prefix: str = ""
-    ) -> None:
+    def __init__(self, bootstrap_servers: str, topic_prefix: str = "") -> None:
         """
         Initialize Kafka event producer.
 
@@ -97,9 +97,7 @@ class KafkaEventProducer:
             raise ValueError("bootstrap_servers cannot be empty")
 
         if not AIOKAFKA_AVAILABLE:
-            raise ImportError(
-                "aiokafka is not installed. Install it with: pip install aiokafka"
-            )
+            raise ImportError("aiokafka is not installed. Install it with: pip install aiokafka")
 
         self.bootstrap_servers = bootstrap_servers
         self.topic_prefix = topic_prefix
@@ -112,7 +110,7 @@ class KafkaEventProducer:
             extra={
                 "bootstrap_servers": bootstrap_servers,
                 "topic_prefix": topic_prefix,
-            }
+            },
         )
 
     async def start(self) -> None:
@@ -142,9 +140,6 @@ class KafkaEventProducer:
                 key_serializer=lambda k: k.encode("utf-8") if k else None,
                 compression_type="gzip",
                 acks="all",  # Wait for all replicas to acknowledge
-                retries=0,  # We handle retries manually
-                enable_idempotence=True,  # Prevent duplicates
-                max_in_flight_requests_per_connection=5,
                 request_timeout_ms=30000,  # 30 seconds
             )
 
@@ -155,7 +150,7 @@ class KafkaEventProducer:
                 extra={
                     "bootstrap_servers": self.bootstrap_servers,
                     "topic_prefix": self.topic_prefix,
-                }
+                },
             )
 
         except Exception as e:
@@ -165,7 +160,7 @@ class KafkaEventProducer:
                     "bootstrap_servers": self.bootstrap_servers,
                     "error": str(e),
                 },
-                exc_info=True
+                exc_info=True,
             )
             raise
 
@@ -192,11 +187,7 @@ class KafkaEventProducer:
             logger.info("Kafka producer stopped")
 
         except Exception as e:
-            logger.error(
-                "Error stopping Kafka producer",
-                extra={"error": str(e)},
-                exc_info=True
-            )
+            logger.error("Error stopping Kafka producer", extra={"error": str(e)}, exc_info=True)
             # Set to None even if stop fails
             self.producer = None
 
@@ -223,8 +214,7 @@ class KafkaEventProducer:
         """
         if event_type not in EVENT_TOPIC_MAP:
             raise ValueError(
-                f"Unknown event_type: {event_type}. "
-                f"Valid types: {list(EVENT_TOPIC_MAP.keys())}"
+                f"Unknown event_type: {event_type}. " f"Valid types: {list(EVENT_TOPIC_MAP.keys())}"
             )
 
         base_topic = EVENT_TOPIC_MAP[event_type]
@@ -235,16 +225,12 @@ class KafkaEventProducer:
             extra={
                 "event_type": event_type,
                 "topic_name": topic_name,
-            }
+            },
         )
 
         return topic_name
 
-    async def send_event(
-        self,
-        event_type: str,
-        event_data: Dict[str, Any]
-    ) -> None:
+    async def send_event(self, event_type: str, event_data: Dict[str, Any]) -> None:
         """
         Send event to Kafka topic with retry logic.
 
@@ -278,8 +264,7 @@ class KafkaEventProducer:
         # Validate event_type
         if event_type not in EVENT_TOPIC_MAP:
             raise ValueError(
-                f"Unknown event_type: {event_type}. "
-                f"Valid types: {list(EVENT_TOPIC_MAP.keys())}"
+                f"Unknown event_type: {event_type}. " f"Valid types: {list(EVENT_TOPIC_MAP.keys())}"
             )
 
         # Validate user_id exists for partitioning
@@ -294,11 +279,7 @@ class KafkaEventProducer:
         for attempt in range(1, self._retry_max_attempts + 1):
             try:
                 # Send message to Kafka
-                await self.producer.send(
-                    topic=topic,
-                    key=user_id,
-                    value=event_data
-                )
+                await self.producer.send(topic=topic, key=user_id, value=event_data)
 
                 logger.debug(
                     "Event sent to Kafka",
@@ -307,7 +288,7 @@ class KafkaEventProducer:
                         "topic": topic,
                         "user_id": user_id,
                         "attempt": attempt,
-                    }
+                    },
                 )
 
                 # Success - return
@@ -330,7 +311,7 @@ class KafkaEventProducer:
                             "max_attempts": self._retry_max_attempts,
                             "delay_seconds": delay,
                             "error": str(e),
-                        }
+                        },
                     )
 
                     # Wait before retry
@@ -346,7 +327,7 @@ class KafkaEventProducer:
                             "attempts": attempt,
                             "error": str(e),
                         },
-                        exc_info=True
+                        exc_info=True,
                     )
                     raise
 
@@ -360,7 +341,7 @@ class KafkaEventProducer:
                         "user_id": user_id,
                         "error": str(e),
                     },
-                    exc_info=True
+                    exc_info=True,
                 )
                 raise
 
@@ -416,14 +397,9 @@ def create_producer_from_env() -> KafkaEventProducer:
 
     # Validate bootstrap_servers
     if not bootstrap_servers:
-        raise ValueError(
-            "KAFKA_BOOTSTRAP_SERVERS environment variable is required"
-        )
+        raise ValueError("KAFKA_BOOTSTRAP_SERVERS environment variable is required")
 
-    producer = KafkaEventProducer(
-        bootstrap_servers=bootstrap_servers,
-        topic_prefix=topic_prefix
-    )
+    producer = KafkaEventProducer(bootstrap_servers=bootstrap_servers, topic_prefix=topic_prefix)
 
     # Override retry attempts if provided
     retry_attempts = os.getenv("KAFKA_RETRY_MAX_ATTEMPTS")
@@ -436,7 +412,7 @@ def create_producer_from_env() -> KafkaEventProducer:
             logger.warning(
                 f"Invalid KAFKA_RETRY_MAX_ATTEMPTS: {retry_attempts}, "
                 f"using default: {producer._retry_max_attempts}",
-                extra={"error": str(e)}
+                extra={"error": str(e)},
             )
 
     logger.info(
@@ -445,7 +421,7 @@ def create_producer_from_env() -> KafkaEventProducer:
             "bootstrap_servers": bootstrap_servers,
             "topic_prefix": topic_prefix,
             "retry_max_attempts": producer._retry_max_attempts,
-        }
+        },
     )
 
     return producer

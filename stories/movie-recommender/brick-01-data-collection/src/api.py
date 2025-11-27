@@ -14,54 +14,50 @@ Features:
 """
 
 import logging
+import os
+import sys
 import time
 import uuid
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
-from typing import AsyncGenerator, Dict, Any, Optional
-import sys
+from typing import Any, AsyncGenerator, Dict, Optional
 
-from fastapi import FastAPI, Request, Response, HTTPException, Depends, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Histogram, generate_latest
 from pydantic import ValidationError
-from prometheus_client import Counter, Histogram, generate_latest, CONTENT_TYPE_LATEST
-from starlette.middleware.base import BaseHTTPMiddleware
-
+from src.kafka_producer import KafkaEventProducer, create_producer_from_env
 from src.schemas import (
-    ViewEvent,
     RatingEvent,
     SearchEvent,
     SkipEvent,
+    ViewEvent,
 )
+from starlette.middleware.base import BaseHTTPMiddleware
+
+# Type alias for backward compatibility with existing type hints
+KafkaProducer = KafkaEventProducer
 
 # Configure structured logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    handlers=[
-        logging.StreamHandler(sys.stdout)
-    ]
+    handlers=[logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
 
 # Prometheus metrics
 EVENT_COUNTER = Counter(
-    "event_requests_total",
-    "Total number of event requests",
-    ["event_type", "status"]
+    "event_requests_total", "Total number of event requests", ["event_type", "status"]
 )
 
 REQUEST_DURATION = Histogram(
-    "request_duration_seconds",
-    "Request duration in seconds",
-    ["method", "endpoint", "status_code"]
+    "request_duration_seconds", "Request duration in seconds", ["method", "endpoint", "status_code"]
 )
 
 REQUEST_COUNTER = Counter(
-    "http_requests_total",
-    "Total HTTP requests",
-    ["method", "endpoint", "status_code"]
+    "http_requests_total", "Total HTTP requests", ["method", "endpoint", "status_code"]
 )
 
 
@@ -96,7 +92,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                 "path": request.url.path,
                 "query_params": dict(request.query_params),
                 "client": request.client.host if request.client else None,
-            }
+            },
         )
 
         # Process request
@@ -115,20 +111,16 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                     "path": request.url.path,
                     "status_code": response.status_code,
                     "duration_seconds": round(duration, 3),
-                }
+                },
             )
 
             # Record metrics
             REQUEST_COUNTER.labels(
-                method=request.method,
-                endpoint=request.url.path,
-                status_code=response.status_code
+                method=request.method, endpoint=request.url.path, status_code=response.status_code
             ).inc()
 
             REQUEST_DURATION.labels(
-                method=request.method,
-                endpoint=request.url.path,
-                status_code=response.status_code
+                method=request.method, endpoint=request.url.path, status_code=response.status_code
             ).observe(duration)
 
             return response
@@ -144,7 +136,7 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
                     "error": str(e),
                     "duration_seconds": round(duration, 3),
                 },
-                exc_info=True
+                exc_info=True,
             )
             raise
 
@@ -161,67 +153,23 @@ class TimingMiddleware(BaseHTTPMiddleware):
         return response
 
 
-# Kafka producer dependency (stub implementation)
-class KafkaProducer:
-    """Kafka producer for publishing events."""
-
-    def __init__(self, bootstrap_servers: str = "localhost:9092"):
-        """
-        Initialize Kafka producer.
-
-        Args:
-            bootstrap_servers: Kafka broker addresses
-        """
-        self.bootstrap_servers = bootstrap_servers
-        logger.info(f"Kafka producer initialized with brokers: {bootstrap_servers}")
-
-    async def publish(
-        self,
-        topic: str,
-        key: str,
-        value: Dict[str, Any]
-    ) -> None:
-        """
-        Publish event to Kafka topic.
-
-        Args:
-            topic: Kafka topic name
-            key: Message key
-            value: Message value (serialized event)
-
-        Raises:
-            Exception: If publishing fails
-        """
-        # TODO: Implement actual Kafka publishing
-        # For now, just log the event
-        logger.info(
-            "Publishing event to Kafka",
-            extra={
-                "topic": topic,
-                "key": key,
-                "event_type": value.get("event_type", "unknown"),
-            }
-        )
-
-        # Simulate async Kafka publishing
-        # In production, use aiokafka or similar
-        # await self._producer.send(topic, key=key, value=json.dumps(value))
+# Global Kafka producer instance (managed by lifespan)
+_kafka_producer: Optional[KafkaEventProducer] = None
 
 
-async def get_kafka_producer() -> AsyncGenerator[KafkaProducer, None]:
+async def get_kafka_producer() -> AsyncGenerator[KafkaEventProducer, None]:
     """
     Dependency to get Kafka producer instance.
 
     Yields:
-        KafkaProducer instance
+        KafkaEventProducer instance
+
+    Raises:
+        RuntimeError: If producer is not initialized
     """
-    # In production, this would be a singleton or connection pool
-    producer = KafkaProducer()
-    try:
-        yield producer
-    finally:
-        # Cleanup if needed
-        pass
+    if _kafka_producer is None:
+        raise RuntimeError("Kafka producer not initialized. Check application startup.")
+    yield _kafka_producer
 
 
 def get_logger() -> logging.Logger:
@@ -239,16 +187,39 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     Application lifespan context manager.
 
-    Handles startup and shutdown logic.
+    Handles startup and shutdown logic, including Kafka producer lifecycle.
     """
+    global _kafka_producer
+
     # Startup
     logger.info("Starting MovieWorld Event Collection API...")
+
+    # Initialize Kafka producer
+    try:
+        _kafka_producer = create_producer_from_env()
+        await _kafka_producer.start()
+        logger.info("Kafka producer initialized and started")
+    except Exception as e:
+        logger.error(f"Failed to initialize Kafka producer: {e}", exc_info=True)
+        # Continue without Kafka - API will still work but events won't be published
+        _kafka_producer = None
+
     logger.info("API is ready to accept requests")
 
     yield
 
     # Shutdown
     logger.info("Shutting down MovieWorld Event Collection API...")
+
+    # Stop Kafka producer
+    if _kafka_producer is not None:
+        try:
+            await _kafka_producer.stop()
+            logger.info("Kafka producer stopped")
+        except Exception as e:
+            logger.error(f"Error stopping Kafka producer: {e}", exc_info=True)
+        finally:
+            _kafka_producer = None
 
 
 # Create FastAPI app
@@ -279,10 +250,7 @@ app.add_middleware(RequestIDMiddleware)
 
 # Exception handlers
 @app.exception_handler(ValidationError)
-async def validation_exception_handler(
-    request: Request,
-    exc: ValidationError
-) -> JSONResponse:
+async def validation_exception_handler(request: Request, exc: ValidationError) -> JSONResponse:
     """
     Handle Pydantic validation errors.
 
@@ -301,7 +269,7 @@ async def validation_exception_handler(
             "request_id": request_id,
             "path": request.url.path,
             "errors": exc.errors(),
-        }
+        },
     )
 
     return JSONResponse(
@@ -312,15 +280,12 @@ async def validation_exception_handler(
             "message": "Validation failed",
             "errors": exc.errors(),
             "request_id": request_id,
-        }
+        },
     )
 
 
 @app.exception_handler(Exception)
-async def general_exception_handler(
-    request: Request,
-    exc: Exception
-) -> JSONResponse:
+async def general_exception_handler(request: Request, exc: Exception) -> JSONResponse:
     """
     Handle unexpected exceptions.
 
@@ -340,7 +305,7 @@ async def general_exception_handler(
             "path": request.url.path,
             "error": str(exc),
         },
-        exc_info=True
+        exc_info=True,
     )
 
     return JSONResponse(
@@ -350,7 +315,7 @@ async def general_exception_handler(
             "error_type": "internal_server_error",
             "message": "An unexpected error occurred",
             "request_id": request_id,
-        }
+        },
     )
 
 
@@ -360,7 +325,7 @@ async def general_exception_handler(
     status_code=status.HTTP_200_OK,
     summary="Health check",
     description="Returns API health status",
-    tags=["System"]
+    tags=["System"],
 )
 async def health_check() -> Dict[str, Any]:
     """
@@ -376,10 +341,7 @@ async def health_check() -> Dict[str, Any]:
             "timestamp": "2024-01-15T20:30:00Z"
         }
     """
-    return {
-        "status": "healthy",
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    }
+    return {"status": "healthy", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 # Metrics endpoint
@@ -388,7 +350,7 @@ async def health_check() -> Dict[str, Any]:
     status_code=status.HTTP_200_OK,
     summary="Prometheus metrics",
     description="Returns Prometheus metrics in text format",
-    tags=["System"]
+    tags=["System"],
 )
 async def metrics() -> Response:
     """
@@ -404,10 +366,7 @@ async def metrics() -> Response:
         http_requests_total{method="GET",endpoint="/health",status_code="200"} 10
         ...
     """
-    return Response(
-        content=generate_latest(),
-        media_type=CONTENT_TYPE_LATEST
-    )
+    return Response(content=generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
 
 # View event endpoint
@@ -417,13 +376,13 @@ async def metrics() -> Response:
     summary="Record view event",
     description="Record a user viewing a movie",
     tags=["Events"],
-    response_model=Dict[str, Any]
+    response_model=Dict[str, Any],
 )
 async def record_view_event(
     event: ViewEvent,
     request: Request,
     producer: KafkaProducer = Depends(get_kafka_producer),
-    logger: logging.Logger = Depends(get_logger)
+    logger: logging.Logger = Depends(get_logger),
 ) -> Dict[str, Any]:
     """
     Record a user view event.
@@ -465,18 +424,14 @@ async def record_view_event(
     event_id = str(uuid.uuid4())
 
     try:
-        # Convert event to dict
-        event_dict = event.model_dump()
+        # Convert event to dict (mode='json' serializes datetime to ISO strings)
+        event_dict = event.model_dump(mode="json")
         event_dict["event_type"] = "view"
         event_dict["event_id"] = event_id
         event_dict["request_id"] = request_id
 
         # Publish to Kafka
-        await producer.publish(
-            topic="movie-events",
-            key=event.user_id,
-            value=event_dict
-        )
+        await producer.send_event(event_type="view", event_data=event_dict)
 
         # Record metric
         EVENT_COUNTER.labels(event_type="view", status="success").inc()
@@ -488,7 +443,7 @@ async def record_view_event(
                 "event_id": event_id,
                 "user_id": event.user_id,
                 "movie_id": event.movie_id,
-            }
+            },
         )
 
         return {
@@ -510,11 +465,11 @@ async def record_view_event(
                 "movie_id": event.movie_id,
                 "error": str(e),
             },
-            exc_info=True
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to record view event: {str(e)}"
+            detail=f"Failed to record view event: {str(e)}",
         )
 
 
@@ -525,13 +480,13 @@ async def record_view_event(
     summary="Record rating event",
     description="Record a user rating a movie",
     tags=["Events"],
-    response_model=Dict[str, Any]
+    response_model=Dict[str, Any],
 )
 async def record_rating_event(
     event: RatingEvent,
     request: Request,
     producer: KafkaProducer = Depends(get_kafka_producer),
-    logger: logging.Logger = Depends(get_logger)
+    logger: logging.Logger = Depends(get_logger),
 ) -> Dict[str, Any]:
     """
     Record a user rating event.
@@ -568,18 +523,14 @@ async def record_rating_event(
     event_id = str(uuid.uuid4())
 
     try:
-        # Convert event to dict
-        event_dict = event.model_dump()
+        # Convert event to dict (mode='json' serializes datetime to ISO strings)
+        event_dict = event.model_dump(mode="json")
         event_dict["event_type"] = "rating"
         event_dict["event_id"] = event_id
         event_dict["request_id"] = request_id
 
         # Publish to Kafka
-        await producer.publish(
-            topic="movie-events",
-            key=event.user_id,
-            value=event_dict
-        )
+        await producer.send_event(event_type="rating", event_data=event_dict)
 
         # Record metric
         EVENT_COUNTER.labels(event_type="rating", status="success").inc()
@@ -592,7 +543,7 @@ async def record_rating_event(
                 "user_id": event.user_id,
                 "movie_id": event.movie_id,
                 "rating": event.rating,
-            }
+            },
         )
 
         return {
@@ -615,11 +566,11 @@ async def record_rating_event(
                 "movie_id": event.movie_id,
                 "error": str(e),
             },
-            exc_info=True
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to record rating event: {str(e)}"
+            detail=f"Failed to record rating event: {str(e)}",
         )
 
 
@@ -630,13 +581,13 @@ async def record_rating_event(
     summary="Record search event",
     description="Record a user searching for movies",
     tags=["Events"],
-    response_model=Dict[str, Any]
+    response_model=Dict[str, Any],
 )
 async def record_search_event(
     event: SearchEvent,
     request: Request,
     producer: KafkaProducer = Depends(get_kafka_producer),
-    logger: logging.Logger = Depends(get_logger)
+    logger: logging.Logger = Depends(get_logger),
 ) -> Dict[str, Any]:
     """
     Record a user search event.
@@ -673,18 +624,14 @@ async def record_search_event(
     event_id = str(uuid.uuid4())
 
     try:
-        # Convert event to dict
-        event_dict = event.model_dump()
+        # Convert event to dict (mode='json' serializes datetime to ISO strings)
+        event_dict = event.model_dump(mode="json")
         event_dict["event_type"] = "search"
         event_dict["event_id"] = event_id
         event_dict["request_id"] = request_id
 
         # Publish to Kafka
-        await producer.publish(
-            topic="movie-events",
-            key=event.user_id,
-            value=event_dict
-        )
+        await producer.send_event(event_type="search", event_data=event_dict)
 
         # Record metric
         EVENT_COUNTER.labels(event_type="search", status="success").inc()
@@ -697,7 +644,7 @@ async def record_search_event(
                 "user_id": event.user_id,
                 "query": event.query,
                 "results_count": event.results_count,
-            }
+            },
         )
 
         return {
@@ -720,11 +667,11 @@ async def record_search_event(
                 "query": event.query,
                 "error": str(e),
             },
-            exc_info=True
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to record search event: {str(e)}"
+            detail=f"Failed to record search event: {str(e)}",
         )
 
 
@@ -735,13 +682,13 @@ async def record_search_event(
     summary="Record skip event",
     description="Record a user skipping a movie",
     tags=["Events"],
-    response_model=Dict[str, Any]
+    response_model=Dict[str, Any],
 )
 async def record_skip_event(
     event: SkipEvent,
     request: Request,
     producer: KafkaProducer = Depends(get_kafka_producer),
-    logger: logging.Logger = Depends(get_logger)
+    logger: logging.Logger = Depends(get_logger),
 ) -> Dict[str, Any]:
     """
     Record a user skip event.
@@ -778,18 +725,14 @@ async def record_skip_event(
     event_id = str(uuid.uuid4())
 
     try:
-        # Convert event to dict
-        event_dict = event.model_dump()
+        # Convert event to dict (mode='json' serializes datetime to ISO strings)
+        event_dict = event.model_dump(mode="json")
         event_dict["event_type"] = "skip"
         event_dict["event_id"] = event_id
         event_dict["request_id"] = request_id
 
         # Publish to Kafka
-        await producer.publish(
-            topic="movie-events",
-            key=event.user_id,
-            value=event_dict
-        )
+        await producer.send_event(event_type="skip", event_data=event_dict)
 
         # Record metric
         EVENT_COUNTER.labels(event_type="skip", status="success").inc()
@@ -802,7 +745,7 @@ async def record_skip_event(
                 "user_id": event.user_id,
                 "movie_id": event.movie_id,
                 "watch_duration_seconds": event.watch_duration_seconds,
-            }
+            },
         )
 
         return {
@@ -824,9 +767,9 @@ async def record_skip_event(
                 "movie_id": event.movie_id,
                 "error": str(e),
             },
-            exc_info=True
+            exc_info=True,
         )
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to record skip event: {str(e)}"
+            detail=f"Failed to record skip event: {str(e)}",
         )
